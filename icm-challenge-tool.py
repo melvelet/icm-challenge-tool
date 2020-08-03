@@ -23,7 +23,7 @@ def open_yaml(filename):
         return yaml.load(file, Loader=yaml.FullLoader)
 
 
-def write_to_clipboard(output):
+def write_to_clipboard_mac(output):
     process = subprocess.Popen(
         'pbcopy', env={'LANG': 'en_US.UTF-8'}, stdin=subprocess.PIPE)
     process.communicate(output.encode('utf-8'))
@@ -142,4 +142,4 @@ if __name__ == '__main__':
     # print(ct.create_users_dict().sort(key='count'))
     table = ct.print_leaderboard()
     print(table)
-    write_to_clipboard(table)
+    write_to_clipboard_mac(table)
