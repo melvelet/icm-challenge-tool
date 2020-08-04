@@ -8,6 +8,8 @@ IMDB = 1
 CHECKS = 2
 YEAR = 3
 COUNTRY = 4
+FILMTITLE = 5
+FLAGS = 6
 
 
 def open_csv(file, delimiter):
@@ -27,6 +29,7 @@ def write_to_clipboard_mac(output):
     process = subprocess.Popen(
         'pbcopy', env={'LANG': 'en_US.UTF-8'}, stdin=subprocess.PIPE)
     process.communicate(output.encode('utf-8'))
+    print('Content copied to clipboard!')
 
 
 class IcmChallengeTool:
@@ -59,7 +62,8 @@ class IcmChallengeTool:
                     'check_counts': list(),
                     'imdb_ids': list()
                 }
-            users[user]['count'] += 1
+            if 's' not in entry[FLAGS]:
+                users[user]['count'] += 1
             if entry[CHECKS]:
                 users[user]['check_counts'].append(int(entry[CHECKS]))
             imdb_url = [content for content in entry[IMDB].split('/') if content.startswith('tt')]
@@ -77,7 +81,11 @@ class IcmChallengeTool:
         def take_second(elem):
             return elem[1]
 
+        def take_lower(elem):
+            return str.casefold(elem[0])
+
         user_count_list = [(user_name, user['count']) for user_name, user in self.users.items()]
+        user_count_list = sorted(user_count_list, key=take_lower)
         return sorted(user_count_list, key=take_second, reverse=True)
 
     def get_count_of_entries_in_500(self, username):
