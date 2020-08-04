@@ -38,6 +38,7 @@ class IcmChallengeTool:
         self.users = self.__create_users_dict()
         self.__map_nominations_to_users()
         self.fivehundred, self.thousand = self.__get_500_list()
+        self.users['overall'] = self.get_overall()
 
     def __get_500_list(self):
         lst = open_csv('1000.csv', ',')
@@ -77,6 +78,20 @@ class IcmChallengeTool:
         for username, val in self.users.items():
             self.users[username]['nomination'] = mappings[username]['link'] if username in mappings else None
 
+    def get_overall(self):
+        overall = {'count': sum(user['count'] for _, user in self.users.items()),
+                   'check_counts': list(),
+                   'imdb_ids': list(),
+                   'nomination': list()
+                   }
+        overall['check_counts'].extend(
+            check_count for _, user in self.users.items() for check_count in user['check_counts'])
+        overall['imdb_ids'].extend(
+            imdb_id for _, user in self.users.items() for imdb_id in user['imdb_ids'])
+        overall['nomination'].extend(
+            user['nomination'] for _, user in self.users.items() if user['nomination'])
+        return overall
+
     def get_leader_list(self):
         def take_second(elem):
             return elem[1]
@@ -110,24 +125,40 @@ class IcmChallengeTool:
         last_count = 100000
         last_i = 0
         for i, (username, count) in enumerate(leader_list):
-            leaderboard += f"[tr][td]\t{last_i if count == last_count else i + 1}\t[/td]" \
+            row = f"[tr][td]\t{self.__get_position(count, i, last_count, last_i)}\t[/td]" \
                            f"[td]\t{username}\t[/td]" \
                            f"[td]\t{count}\t[/td]"
-            leaderboard += self.__get_check_stats_cell(username)
-            leaderboard += self.__get_500_400_cell(username)
-            leaderboard += self.__get_nomination_cell(username)
-            leaderboard += f"[/tr]\n"
+            row += self.__get_check_stats_cell(username)
+            row += self.__get_500_400_cell(username)
+            row += self.__get_nomination_cell(username)
+            row += f"[/tr]\n"
             if last_count > count:
-                last_i = i + 1
+                last_i = i
                 last_count = count
-        leaderboard += '[/table]'
+
+            if i == 0:
+                overall_row = row
+            else:
+                leaderboard += row
+
+        leaderboard += overall_row + '[/table]'
         return leaderboard
 
-    def __get_nomination_cell(self, username):
-        if self.users[username]['nomination']:
-            return f"[td]   [url={self.users[username]['nomination']}] :ICM: [/url] [/td]"
+    def __get_position(self, count, i, last_count, last_i):
+        if i == 0:
+            return '-'
+        elif count == last_count:
+            return last_i
         else:
-            return f"[td]   -   [/td]"
+            return i
+
+    def __get_nomination_cell(self, username):
+        nominations = self.users[username]['nomination']
+        if type(nominations) == str:
+            return f"[td]\t[url={nominations}] :ICM: [/url]\t[/td]"
+        elif type(nominations) == list:
+            return f"[td]\t{len(nominations)}x\t[/td]"
+        return f"[td]\t-\t[/td]"
 
     def __get_500_400_cell(self, username):
         return f"[td]	{self.get_count_of_entries_in_500(username)} / " \
