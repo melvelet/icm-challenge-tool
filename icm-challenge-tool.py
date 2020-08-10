@@ -94,7 +94,7 @@ class IcmChallengeTool:
         fivehundred = list()
         thousand = list()
         for rank, entry in enumerate(lst):
-            imdb = [content for content in entry[11].split('/') if content.startswith('tt')][0]
+            imdb = get_imdb_id_from_url(entry[11])
             if rank < 500:
                 fivehundred.append(imdb)
             else:
@@ -126,7 +126,7 @@ class IcmChallengeTool:
     def __map_nominations_to_users(self):
         mappings = open_yaml('nominations')
         for username, val in self.users.items():
-            self.users[username]['nomination'] = {
+            val['nomination'] = {
                 'link': mappings[username]['link'] if username in mappings else None,
                 'id': mappings[username]['id'] if username in mappings else None
             }
@@ -159,6 +159,11 @@ class IcmChallengeTool:
         user_count_list = [(user_name, user['count']) for user_name, user in self.users.items()]
         user_count_list = sorted(user_count_list, key=take_lower)
         return sorted(user_count_list, key=take_second, reverse=True)
+
+    def get_most_frequent_movies(self, minimum_frequency):
+        counter = Counter(self.users['overall']['imdb_ids'])
+        result = counter.most_common()
+        return [x for x in result if x[1] >= minimum_frequency]
 
     def get_count_of_entries_in_500(self, username):
         imdbs = [imdb for imdb in self.users[username]['imdb_ids'] if imdb in self.fivehundred]
@@ -201,6 +206,23 @@ class IcmChallengeTool:
 
         leaderboard += overall_row + '[/table]'
         return leaderboard
+
+    def print_table_of_most_frequent_entries(self, minimum_freq):
+        most_freq_list = self.get_most_frequent_movies(minimum_freq)
+        table = f"[table]\n[tr][td][b]\tTimes challenged\t[/b][/td][td][b]\tName\t[/b][/td][td][b]\tYear\t[/b][/td]" \
+                f"[td][b]IMDB[/b][/td][td][b]ICM[/b][/td][/tr]\n"
+        for imdb_id, count in most_freq_list:
+            title, year = self.__get_title_and_year_from_imdb_id(imdb_id)
+            row = f"[tr][td]\t{count}\t[/td]" \
+                  f"[td]\t{title}\t[/td]" \
+                  f"[td]\t{year}\t[/td]" \
+                  f"[td]\t[url=https://www.imdb.com/title/{imdb_id}/] :imdb: [/url]\t[/td]" \
+                  f"[td]\t[url=https://www.icheckmovies.com/search/movies/?query={imdb_id}/] :ICM: [/url]\t[/td]" \
+                  f"[/tr]\n"
+            table += row
+
+        table += '[/table]'
+        return table
 
     def __get_position(self, count, i, last_count, last_i):
         if i == 0:
@@ -247,12 +269,19 @@ class IcmChallengeTool:
     def get_check_count_median(self, username):
         return statistics.median(self.users[username]['check_counts'])
 
+    def __get_title_and_year_from_imdb_id(self, imdb_id):
+        for row in self.challenge_list:
+            if get_imdb_id_from_url(row[IMDB]) == imdb_id:
+                return row[FILMTITLE], row[YEAR]
+        return None, None
+
 
 if __name__ == '__main__':
     challenge_list = open_csv('lessthan400.csv', ';')
-    ot = OMDBInfoTool('lessthan400.csv')
-    ot.add_info_to_csv()
+    # ot = OMDBInfoTool('lessthan400.csv')
+    # ot.add_info_to_csv()
     ct = IcmChallengeTool(challenge_list)
     table = ct.print_leaderboard()
+    # table = ct.print_table_of_most_frequent_entries(2)
     print(table)
     write_to_clipboard_mac(table)
