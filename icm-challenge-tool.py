@@ -261,7 +261,7 @@ class IcmChallengeTool:
     def __get_user_nomination_watches_count(self, username):
         all_nominations = self.users['overall']['nomination']['id']
         user_watches = self.users[username]['imdb_ids']
-        return len(set(all_nominations).intersection(user_watches))
+        return len([x for x in user_watches if x in all_nominations])
 
     def get_check_count_mean(self, username):
         return statistics.mean(self.users[username]['check_counts'])
@@ -275,13 +275,73 @@ class IcmChallengeTool:
                 return row[FILMTITLE], row[YEAR]
         return None, None
 
+    def get_yearly_breakdown(self):
+        yearly_counts = dict()
+        for _, entry in enumerate(self.challenge_list):
+            year = entry[YEAR][0:4]
+            if year:
+                yearly_counts[year] = yearly_counts[year] + 1 if year in yearly_counts else 1
+        yearly_breakdown = [(year, count) for year, count in yearly_counts.items()]
+        return sorted(yearly_breakdown)
+
+    def get_decade_breakdown(self):
+        yearly_breakdown = self.get_yearly_breakdown()
+        decade_counts = dict()
+        for year, count in yearly_breakdown:
+            decade = year[0:3] + '0s'
+            decade_counts[decade] = decade_counts[decade] + count if decade in decade_counts else count
+        return [(decade, count) for decade, count in decade_counts.items()]
+
+    def print_decade_breakdown(self):
+        decade_breakdown = self.get_decade_breakdown()
+        table = f"[table]\n[tr][td][b]\tDecade\t[/b][/td][td][b]\tCount\t[/b][/td][/tr]\n"
+        for decade, count in decade_breakdown:
+            table += f"[tr][td][b]\t{decade}\t[/b][/td][td][b]\t{count}\t[/b][/td][/tr]\n"
+        table += "[/table]"
+        return table
+
+    def get_country_breakdown(self):
+        country_counts = dict()
+        for _, entry in enumerate(self.challenge_list):
+            countries = entry[COUNTRY].split(', ')
+            if not countries[0]:
+                continue
+            for country in countries:
+                if country == 'N/A':
+                    continue
+                country_counts[country] = country_counts[country] + 1 if country in country_counts else 1
+        country_breakdown = [(country, count) for country, count in country_counts.items()]
+        return sorted(country_breakdown)
+
+    def print_country_breakdown_table(self):
+        def take_second(elem):
+            return elem[1]
+
+        country_breakdown = self.get_country_breakdown()
+        country_breakdown = sorted(country_breakdown, key=take_second, reverse=True)
+        table = f"[table]\n[tr][td][b]\tDecade\t[/b][/td][td][b]\tCount\t[/b][/td][/tr]\n"
+        for country, count in country_breakdown:
+            table += f"[tr][td][b]\t{country}\t[/b][/td][td][b]\t{count}\t[/b][/td][/tr]\n"
+        table += "[/table]"
+        return table
+
 
 if __name__ == '__main__':
+    ot = OMDBInfoTool('lessthan400.csv')
+    ot.add_info_to_csv()
     challenge_list = open_csv('lessthan400.csv', ';')
-    # ot = OMDBInfoTool('lessthan400.csv')
-    # ot.add_info_to_csv()
     ct = IcmChallengeTool(challenge_list)
-    table = ct.print_leaderboard()
-    # table = ct.print_table_of_most_frequent_entries(2)
+    table = f"{ct.print_leaderboard()}\n" \
+            f"* The mean/median and 500<400 related stats count every entry as one (including mini-series and shorts)\n" \
+            f"\nDecade breakdown:" \
+            f"{ct.print_decade_breakdown()}\n" \
+            f"(takes into account all entries posted until post #352 and all entries with IMDb links posted afterwards)\n" \
+            f"\n\n[spoiler=Country breakdown]" \
+            f"{ct.print_country_breakdown_table()}\n\n" \
+            f"(takes into account all entries posted until post #352 and all entries with IMDb links posted afterwards" \
+            f" and uses all co-production countries listed in the film's OMDB entry)[/spoiler]\n" \
+            f"\n\n[spoiler=Movies that have been challenged more than once]" \
+            f"{ct.print_table_of_most_frequent_entries(2)}\n[/spoiler]"
     print(table)
     write_to_clipboard_mac(table)
+    # print(ct.print_country_breakdown_table())
