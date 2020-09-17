@@ -353,7 +353,7 @@ class IcmChallengeTool:
 
         field_breakdown = self.get_misc_field_breakdown(field)
         field_breakdown = sorted(field_breakdown, key=take_second, reverse=True)
-        table = f"[table={field} Breakdown]\n[tr][td][b]\t{field}\t[/b][/td][td][b]\tCount\t[/b][/td][/tr]\n"
+        table = f"[table]\n[tr][td][b]\t{field}\t[/b][/td][td][b]\tCount\t[/b][/td][/tr]\n"
         for field_value, count in field_breakdown:
             table += f"[tr][td]\t{field_value}\t[/td][td]\t{count}\t[/td][/tr]\n"
         table += "[/table]"
@@ -366,9 +366,8 @@ if __name__ == '__main__':
     header, challenge_list = open_csv('russia.csv', ';')
     ct = IcmChallengeTool(header, challenge_list)
     table = f"{ct.print_leaderboard()}\n" \
-            f"\nDecade breakdown:" \
-            f"{ct.print_decade_breakdown()}\n" \
-            f"\n{ct.print_misc_field_breakdown_table('Director')}\n" \
+            f"\nDecade breakdown:{ct.print_decade_breakdown()}\n" \
+            f"\n[spoiler=Director breakdown]{ct.print_misc_field_breakdown_table('Director')}[/spoiler]\n" \
             f"\n\n[spoiler=Movies that have been challenged more than once]" \
             f"{ct.print_table_of_most_frequent_entries(2)}\n[/spoiler]"
     print(table)
