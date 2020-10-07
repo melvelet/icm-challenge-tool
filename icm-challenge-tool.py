@@ -1,8 +1,10 @@
 import csv, yaml
+import os
 import statistics
 import requests
 import subprocess
 from collections import Counter
+import glob
 
 
 def open_csv(file, delimiter, encoding='utf-8'):
@@ -34,6 +36,12 @@ def get_imdb_id_from_url(url):
     return None
 
 
+def yield_lists(challenge_name):
+    os.chdir(f"icm_lists/{challenge_name}/")
+    for filename in sorted(glob.glob(f"*.csv")):
+        yield filename[:-len('.csv')], os.path.join(os.getcwd(), filename)
+
+
 class OMDBInfoTool:
     def __init__(self, filename):
         self.API_KEY = '3bf9939c'
@@ -48,8 +56,9 @@ class OMDBInfoTool:
     def __put_info_in_entry_field(self, entry, field, value):
         if not value:
             return
-        field_info = self.__get_field_from_entry(entry, field)
-        if not field_info:
+        if not self.__get_field_from_entry(entry, field):
+            if field == 'Runtime':
+                value = value[0:-len(' min')]
             entry[self.header.index(field)] = value
 
     def __entry_has_all_fields(self, entry):
@@ -62,14 +71,11 @@ class OMDBInfoTool:
 
     def add_info_to_csv(self):
         for key, entry in enumerate(self.input):
-            if not self.__get_field_from_entry(entry, 'imdb'):
-                continue
             imdb_link = self.__get_field_from_entry(entry, 'imdb')
             imdb_id = get_imdb_id_from_url(imdb_link)
             if not imdb_id:
                 continue
             if not self.__entry_has_all_fields(entry):
-
                 response = self.get_info_from_omdb_by_imdb_id(imdb_id)
                 for field in self.header:
                     if field in ('flags', 'user', 'checks', 'imdb'):
@@ -96,15 +102,12 @@ class OMDBInfoTool:
 
 
 class IcmChallengeTool:
-    def __init__(self, header, challenge_list, use_checks=False, use_nominations=False):
+    def __init__(self, header, challenge_list, challenge_name):
+        self.challenge_name = challenge_name
         self.header = header
         self.challenge_list = challenge_list
         self.users = self.__create_users_dict()
-        self.use_nominations = use_nominations
-        self.use_checks = use_checks
-        # if self.use_nominations:
-        #     self.__map_nominations_to_users()
-        self.fivehundred, self.thousand = self.__get_500_list()
+        self.icm_lists = self.__get_all_icm_lists()
         self.users['overall'] = self.get_overall()
 
     def __get_field_from_entry(self, entry, field):
@@ -112,18 +115,16 @@ class IcmChallengeTool:
             return entry[self.header.index(field)]
         return None
 
-    def __get_500_list(self):
-        _, lst = open_csv('1000.csv', ',', encoding='latin-1')
-        fivehundred = list()
-        thousand = list()
-        for rank, entry in enumerate(lst):
-            imdb = get_imdb_id_from_url(entry[11])
-            if rank < 500:
-                fivehundred.append(imdb)
-            else:
-                thousand.append(imdb)
-
-        return fivehundred, thousand
+    def __get_all_icm_lists(self):
+        icm_lists = dict()
+        for list_name, icm_list in yield_lists(self.challenge_name):
+            _, lst = open_csv(icm_list, ',', encoding='latin-1')
+            imdb_ids = list()
+            for rank, entry in enumerate(lst):
+                imdb = get_imdb_id_from_url(entry[11])
+                imdb_ids.append(imdb) if imdb else None
+            icm_lists[list_name] = imdb_ids if imdb_ids else None
+        return icm_lists
 
     def __create_users_dict(self):
         users = dict()
@@ -132,45 +133,44 @@ class IcmChallengeTool:
             if user not in users:
                 users[user] = {
                     'count': 0,
-                    # 'check_counts': list(),
-                    'imdb_ids': list()
+                    'imdb_ids': list(),
+                    'runtime': 0
                 }
-            flags = self.__get_field_from_entry(entry, 'flags')
-            if flags and not ('s' in flags and 'c' not in flags):
+            if self.does_entry_increase_count(entry):
                 users[user]['count'] += 1
-            # if entry[CHECKS]:
-            #     users[user]['check_counts'].append(int(entry[CHECKS]))
+            users[user]['runtime'] += self.__get_runtime_from_entry(entry)
             imdb_id = get_imdb_id_from_url(self.__get_field_from_entry(entry, 'imdb'))
             if imdb_id:
                 users[user]['imdb_ids'].append(imdb_id)
 
         return users
 
-    # def __map_nominations_to_users(self):
-    #     mappings = open_yaml('nominations')
-    #     for username, val in self.users.items():
-    #         val['nomination'] = {
-    #             'link': mappings[username]['link'] if username in mappings else None,
-    #             'id': mappings[username]['id'] if username in mappings else None
-    #         }
+    def __get_runtime_from_entry(self, entry):
+        flags = self.__get_field_from_entry(entry, 'flags')
+        if flags and 'm' in flags:
+            return 0
+        runtime = self.__get_field_from_entry(entry, 'Runtime')
+        if runtime:
+            return int(runtime)
+        elif 'Runtime' in self.header:
+            if flags and 's' in flags:
+                return 5
+            else:
+                return 40
+
+    def does_entry_increase_count(self, entry):
+        flags = self.__get_field_from_entry(entry, 'flags')
+        if flags and 's' in flags and 'c' not in flags:
+            return False
+        return True
 
     def get_overall(self):
         overall = {'count': sum(user['count'] for _, user in self.users.items()),
-                   # 'check_counts': list(),
                    'imdb_ids': list(),
-                   # 'nomination':
-                   #     {'link': list(),
-                   #      'id': list()}
+                   'runtime': sum(user['runtime'] for _, user in self.users.items())
                    }
-        # overall['check_counts'].extend(
-        #     check_count for _, user in self.users.items() for check_count in user['check_counts'])
         overall['imdb_ids'].extend(
             imdb_id for _, user in self.users.items() for imdb_id in user['imdb_ids'])
-        # if self.use_nominations:
-        #     overall['nomination']['link'].extend(
-        #         user['nomination']['link'] for _, user in self.users.items() if user['nomination'])
-        #     overall['nomination']['id'].extend(
-        #         user['nomination']['id'] for _, user in self.users.items() if user['nomination'])
         return overall
 
     def get_leader_list(self):
@@ -189,25 +189,22 @@ class IcmChallengeTool:
         result = counter.most_common()
         return [x for x in result if x[1] >= minimum_frequency]
 
-    def get_count_of_entries_in_500(self, username):
-        imdbs = [imdb for imdb in self.users[username]['imdb_ids'] if imdb in self.fivehundred]
+    def get_count_of_entries_in_icm_list(self, username, list_name):
+        imdbs = [imdb for imdb in self.users[username]['imdb_ids'] if imdb in self.icm_lists[list_name]]
         return len(imdbs)
 
-    def get_count_of_entries_in_1000(self, username):
-        imdbs = [imdb for imdb in self.users[username]['imdb_ids'] if imdb in self.thousand]
-        return len(imdbs)
-
-    def get_count_of_entries_not_in_top_list(self, username):
-        imdbs = [imdb for imdb in self.users[username]['imdb_ids'] if imdb not in self.thousand + self.fivehundred]
-        return len(imdbs)
+    def get_user_runtime_cell(self, username):
+        if self.users['overall']['runtime'] <= 0:
+            return ''
+        else:
+            return f"[td]\t{self.users[username]['runtime']}\t[/td]"
 
     def print_leaderboard(self):
         leader_list = self.get_leader_list()
-        leaderboard = f"[table]\n[tr][td][b]\tRank\t[/b][/td][td][b]\tParticipant\t[/b][/td][td][b]\tCount\t[/b][/td]" \
-                      f"{'[td][b]Check count: Mean[/b][/td][td][b]Median[/b][/td]' if self.use_checks else ''}" \
-                      f"[td][b]500<400[/b][/td][td][b]501-1000[/b][/td][td][b]neither[/b][/td]" \
-                      f"{'[td][b]1 > 500 < 400[/ b][/ td][td][b]nom.watched by[/ b][/ td][td][b]user watches[/ b][/ td]' if self.use_nominations else ''}" \
-                      f"[/tr]\n"
+        leaderboard = f"[table]\n[tr][td][b]\tRank\t[/b][/td][td][b]\tParticipant\t[/b][/td][td][b]\tCount\t[/b][/td]"
+        leaderboard += f"[td][b]\tMinutes\t[/b][/td]" if 'Runtime' in self.header else ''
+        leaderboard += f"{self.__get_icm_list_name_cells()}"
+        leaderboard += f"[/tr]\n"
         overall_row = ''
         last_count = 100000
         last_i = 0
@@ -215,9 +212,8 @@ class IcmChallengeTool:
             row = f"[tr][td]\t{self.__get_position(count, i, last_count, last_i)}\t[/td]" \
                   f"[td]\t{username}\t[/td]" \
                   f"[td]\t{count}\t[/td]"
-            # row += self.__get_check_stats_cell(username)
-            row += self.__get_500_400_cell(username)
-            # row += self.__get_nomination_cell(username)
+            row += self.get_user_runtime_cell(username)
+            row += self.__get_count_in_icm_list_cells(username)
             row += f"[/tr]\n"
             if last_count > count:
                 last_i = i
@@ -256,50 +252,17 @@ class IcmChallengeTool:
         else:
             return i
 
-    # def __get_nomination_cell(self, username):
-    #     if not self.use_nominations:
-    #         return ''
-    #     nomination = self.users[username]['nomination']
-    #     nominations_watched_by_user_count = self.__get_user_nomination_watches_count(username)
-    #     if type(nomination['link']) == str:
-    #         result = f"[td]\t[url={nomination['link']}] :ICM: [/url]\t[/td]" \
-    #                  f"[td]\t{self.__get_nomination_watched_by_count(username)}\t[/td]"
-    #     elif type(nomination) == list:
-    #         result = f"[td]\t{len(nomination)}x\t[/td][td]\t-\t[/td]"
-    #     else:
-    #         result = f"[td]\t-\t[/td][td]\t-\t[/td]"
-    #     return f"{result}[td]\t{nominations_watched_by_user_count}\t[/td]"
+    def __get_icm_list_name_cells(self):
+        result = ''
+        for list_name in self.icm_lists:
+            result += f"[td][b]\t{list_name}\t[/b][/td]"
+        return result
 
-    def __get_500_400_cell(self, username):
-        return f"[td]\t{self.get_count_of_entries_in_500(username)}\t[/td]" \
-               f"[td]\t{self.get_count_of_entries_in_1000(username)}\t[/td]" \
-               f"[td]\t{self.get_count_of_entries_not_in_top_list(username)}\t[/td]"
-
-    # def __get_check_stats_cell(self, username):
-    #     if not self.use_checks:
-    #         return ''
-    #     return f"[td]\t{self.get_check_count_mean(username):.1f}\t[/td]" \
-    #            f"[td]\t{self.get_check_count_median(username):.1f}\t[/td]"
-
-    # def __get_nomination_watched_by_count(self, username):
-    #     all_watches = self.users['overall']['imdb_ids']
-    #     user_nomination = self.users[username]['nomination']['id']
-    #     return all_watches.count(user_nomination)
-    #
-    # def __get_user_nomination_watches_count(self, username):
-    #     all_nominations = self.users['overall']['nomination']['id']
-    #     user_watches = self.users[username]['imdb_ids']
-    #     return len([x for x in user_watches if x in all_nominations])
-
-    # def get_check_count_mean(self, username):
-    #     if self.users[username]['check_counts']:
-    #         return statistics.mean(self.users[username]['check_counts'])
-    #     return 0
-    #
-    # def get_check_count_median(self, username):
-    #     if self.users[username]['check_counts']:
-    #         return statistics.median(self.users[username]['check_counts'])
-    #     return 0
+    def __get_count_in_icm_list_cells(self, username):
+        result = ''
+        for list_name in self.icm_lists:
+            result += f"[td]\t{self.get_count_of_entries_in_icm_list(username, list_name)}\t[/td]"
+        return result
 
     def __get_title_and_year_from_imdb_id(self, imdb_id):
         for entry in self.challenge_list:
@@ -347,7 +310,7 @@ class IcmChallengeTool:
         field_breakdown = [(field_value, count) for field_value, count in field_counts.items()]
         return sorted(field_breakdown)
 
-    def print_misc_field_breakdown_table(self, field):
+    def print_misc_field_breakdown_table(self, field, min_value=1):
         def take_second(elem):
             return elem[1]
 
@@ -355,21 +318,58 @@ class IcmChallengeTool:
         field_breakdown = sorted(field_breakdown, key=take_second, reverse=True)
         table = f"[table]\n[tr][td][b]\t{field}\t[/b][/td][td][b]\tCount\t[/b][/td][/tr]\n"
         for field_value, count in field_breakdown:
+            if count < min_value:
+                continue
             table += f"[tr][td]\t{field_value}\t[/td][td]\t{count}\t[/td][/tr]\n"
         table += "[/table]"
         return table
 
+    def __get_alphabetical_user_list(self):
+        def take_lower(elem):
+            return str.casefold(elem[0])
+
+        user_list = [user_name for user_name in self.users if user_name != 'overall']
+        return sorted(user_list, key=take_lower)
+
+    def get_misc_field_count_for_value_for_user(self, user, field, value):
+        all_entries_for_field = [self.__get_field_from_entry(entry, field) for _, entry in
+                                 enumerate(self.challenge_list)
+                                 if not user or self.__get_field_from_entry(entry, 'user') == user]
+        return len([1 for i in all_entries_for_field if value in i])
+
+    def print_misc_field_breakdown_table_by_user(self, field, allowed_values):
+        user_list = self.__get_alphabetical_user_list()
+        table = f"[table]\n[tr][td][b]\tusername\t[/b][/td]"
+        for val in allowed_values:
+            table += f"[td][b]\t{val}\t[/b][/td]"
+        table += "[/tr]\n"
+
+        for user_name in user_list:
+            table += f"[tr][td][b]\t{user_name}\t[/b][/td]"
+            for val in allowed_values:
+                table += f"[td]\t{self.get_misc_field_count_for_value_for_user(user_name, field, val)}\t[/td]"
+            table += f"[/tr]\n"
+
+        table += f"[tr][td][b]\tOverall\t[/b][/td]"
+        for val in allowed_values:
+            table += f"[td]\t{self.get_misc_field_count_for_value_for_user(None, field, val)}\t[/td]"
+        table += f"[/tr]\n[/table]"
+        return table
+
 
 if __name__ == '__main__':
-    ot = OMDBInfoTool('russia.csv')
+    challenge_name = 'southeastasia'
+    country_list = ['Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia',
+                    'Myanmar', 'Philippines', 'Singapore', 'Thailand', 'Timor-Leste', 'Vietnam']
+    ot = OMDBInfoTool(f"{challenge_name}.csv")
     ot.add_info_to_csv()
-    header, challenge_list = open_csv('russia.csv', ';')
-    ct = IcmChallengeTool(header, challenge_list)
-    table = f"{ct.print_leaderboard()}\n" \
-            f"\nDecade breakdown:{ct.print_decade_breakdown()}\n" \
-            f"\n[spoiler=Director breakdown]{ct.print_misc_field_breakdown_table('Director')}[/spoiler]\n" \
-            f"\n\n[spoiler=Movies that have been challenged more than once]" \
-            f"{ct.print_table_of_most_frequent_entries(2)}\n[/spoiler]"
+    header, challenge_list = open_csv(f"{challenge_name}.csv", ';')
+    ct = IcmChallengeTool(header, challenge_list, challenge_name)
+    table = f"{ct.print_leaderboard()}\n"
+    table += f"\nCountry breakdown:\n{ct.print_misc_field_breakdown_table_by_user('Country', country_list)}\n"
+    table += f"\nDecade breakdown:{ct.print_decade_breakdown()}\n"
+    table += f"\n[spoiler=Director breakdown]{ct.print_misc_field_breakdown_table('Director', 2)}[/spoiler]\n"
+    table += f"\n\n[spoiler=Movies that have been challenged more than once]"
+    table += f"{ct.print_table_of_most_frequent_entries(2)}\n[/spoiler]"
     print(table)
     write_to_clipboard_mac(table)
-    # print(ct.print_country_breakdown_table())
