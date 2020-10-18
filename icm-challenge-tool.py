@@ -232,7 +232,6 @@ class IcmChallengeTool:
         result_with_title_and_year = [x + (self.__get_title_and_year_from_imdb_id(x[0])) for x in
                                       result_filter_frequency]
         sorted_result = self.__sort_most_frequent_entries(result_with_title_and_year)
-        print(sorted_result)
         return sorted_result
 
     def __sort_most_frequent_entries(self, input_list):
