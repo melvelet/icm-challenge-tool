@@ -42,6 +42,10 @@ def yield_lists(challenge_name):
         yield filename[:-len('.csv')], os.path.join(os.getcwd(), filename)
 
 
+def take_second(elem):
+    return elem[1]
+
+
 class OMDBInfoTool:
     def __init__(self, filename):
         self.API_KEY = '3bf9939c'
@@ -77,6 +81,8 @@ class OMDBInfoTool:
                 continue
             if not self.__entry_has_all_fields(entry):
                 response = self.get_info_from_omdb_by_imdb_id(imdb_id)
+                if not response:
+                    continue
                 for field in self.header:
                     if field in ('flags', 'user', 'checks', 'imdb'):
                         continue
@@ -174,20 +180,12 @@ class IcmChallengeTool:
         return overall
 
     def get_leader_list(self):
-        def take_second(elem):
-            return elem[1]
-
         def take_lower(elem):
             return str.casefold(elem[0])
 
         user_count_list = [(user_name, user['count']) for user_name, user in self.users.items()]
         user_count_list = sorted(user_count_list, key=take_lower)
         return sorted(user_count_list, key=take_second, reverse=True)
-
-    def get_most_frequent_movies(self, minimum_frequency):
-        counter = Counter(self.users['overall']['imdb_ids'])
-        result = counter.most_common()
-        return [x for x in result if x[1] >= minimum_frequency]
 
     def get_count_of_entries_in_icm_list(self, username, list_name):
         imdbs = [imdb for imdb in self.users[username]['imdb_ids'] if imdb in self.icm_lists[list_name]]
@@ -227,12 +225,29 @@ class IcmChallengeTool:
         leaderboard += overall_row + '[/table]'
         return leaderboard
 
+    def get_most_frequent_movies(self, minimum_frequency):
+        counter = Counter(self.users['overall']['imdb_ids'])
+        result = counter.most_common()
+        result_filter_frequency = [x for x in result if x[1] >= minimum_frequency]
+        result_with_title_and_year = [x + (self.__get_title_and_year_from_imdb_id(x[0])) for x in
+                                      result_filter_frequency]
+        sorted_result = self.__sort_most_frequent_entries(result_with_title_and_year)
+        print(sorted_result)
+        return sorted_result
+
+    def __sort_most_frequent_entries(self, input_list):
+        def take_third(elem):
+            return elem[2]
+
+        sorted_result = sorted(input_list, key=take_third)
+        sorted_result = sorted(sorted_result, key=take_second, reverse=True)
+        return sorted_result
+
     def print_table_of_most_frequent_entries(self, minimum_freq):
         most_freq_list = self.get_most_frequent_movies(minimum_freq)
         table = f"[table]\n[tr][td][b]\tTimes challenged\t[/b][/td][td][b]\tName\t[/b][/td][td][b]\tYear\t[/b][/td]" \
                 f"[td][b]IMDB[/b][/td][td][b]ICM[/b][/td][/tr]\n"
-        for imdb_id, count in most_freq_list:
-            title, year = self.__get_title_and_year_from_imdb_id(imdb_id)
+        for imdb_id, count, title, year in most_freq_list:
             row = f"[tr][td]\t{count}\t[/td]" \
                   f"[td]\t{title}\t[/td]" \
                   f"[td]\t{year}\t[/td]" \
@@ -311,9 +326,6 @@ class IcmChallengeTool:
         return sorted(field_breakdown)
 
     def print_misc_field_breakdown_table(self, field, min_value=1):
-        def take_second(elem):
-            return elem[1]
-
         field_breakdown = self.get_misc_field_breakdown(field)
         field_breakdown = sorted(field_breakdown, key=take_second, reverse=True)
         table = f"[table]\n[tr][td][b]\t{field}\t[/b][/td][td][b]\tCount\t[/b][/td][/tr]\n"
@@ -369,6 +381,7 @@ if __name__ == '__main__':
     table += f"\nCountry breakdown:\n{ct.print_misc_field_breakdown_table_by_user('Country', country_list)}\n"
     table += f"\nDecade breakdown:{ct.print_decade_breakdown()}\n"
     table += f"\n[spoiler=Director breakdown]{ct.print_misc_field_breakdown_table('Director', 2)}[/spoiler]\n"
+    table += f"\n[spoiler=Genre breakdown]{ct.print_misc_field_breakdown_table('Genre')}[/spoiler]\n"
     table += f"\n\n[spoiler=Movies that have been challenged more than once]"
     table += f"{ct.print_table_of_most_frequent_entries(2)}\n[/spoiler]"
     print(table)
