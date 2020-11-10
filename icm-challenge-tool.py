@@ -37,7 +37,10 @@ def get_imdb_id_from_url(url):
 
 
 def yield_lists(challenge_name):
-    os.chdir(f"icm_lists/{challenge_name}/")
+    dir_path = f"icm_lists/{challenge_name}/"
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+    os.chdir(dir_path)
     for filename in sorted(glob.glob(f"*.csv")):
         yield filename[:-len('.csv')], os.path.join(os.getcwd(), filename)
 
@@ -163,6 +166,8 @@ class IcmChallengeTool:
                 return 5
             else:
                 return 40
+        else:
+            return 0
 
     def does_entry_increase_count(self, entry):
         flags = self.__get_field_from_entry(entry, 'flags')
@@ -346,7 +351,7 @@ class IcmChallengeTool:
         all_entries_for_field = [self.__get_field_from_entry(entry, field) for _, entry in
                                  enumerate(self.challenge_list)
                                  if not user or self.__get_field_from_entry(entry, 'user') == user]
-        return len([1 for i in all_entries_for_field if value in i])
+        return len([1 for i in all_entries_for_field if i and value in i])
 
     def print_misc_field_breakdown_table_by_user(self, field, allowed_values):
         user_list = self.__get_alphabetical_user_list()
@@ -385,3 +390,16 @@ if __name__ == '__main__':
     table += f"{ct.print_table_of_most_frequent_entries(2)}\n[/spoiler]"
     print(table)
     write_to_clipboard_mac(table)
+
+    # challenge_name = '1000400'
+    # # ot = OMDBInfoTool(f"{challenge_name}.csv")
+    # # ot.add_info_to_csv()
+    # header, challenge_list = open_csv(f"{challenge_name}.csv", ';')
+    # ct = IcmChallengeTool(header, challenge_list, challenge_name)
+    # table = f"{ct.print_leaderboard()}\n"
+    # table += f"\n[spoiler=Country breakdown (incl. co-production countries)]" \
+    #          f"{ct.print_misc_field_breakdown_table('Country')}[/spoiler]\n"
+    # table += f"\n[spoiler=Language breakdown]{ct.print_misc_field_breakdown_table('Language')}[/spoiler]\n"
+    # table += f"\n[spoiler=Genre breakdown]{ct.print_misc_field_breakdown_table('Genre')}[/spoiler]\n"
+    # print(table)
+    # write_to_clipboard_mac(table)
