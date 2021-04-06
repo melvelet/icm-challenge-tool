@@ -5,6 +5,8 @@ import requests
 import subprocess
 from collections import Counter
 import glob
+import re
+from tkinter import Tk
 
 
 def open_csv(file, delimiter, encoding='utf-8'):
@@ -30,7 +32,7 @@ def write_to_clipboard_mac(output):
 def get_imdb_id_from_url(url):
     if not url:
         return None
-    imdb_url = [content for content in url.split('/') if content.startswith('tt')]
+    imdb_url = [content for content in re.split('[/?]', url) if content.startswith('tt')]
     if imdb_url:
         return imdb_url[0]
     return None
@@ -43,10 +45,6 @@ def yield_lists(challenge_name):
     os.chdir(dir_path)
     for filename in sorted(glob.glob(f"*.csv")):
         yield filename[:-len('.csv')], os.path.join(os.getcwd(), filename)
-
-
-def take_second(elem):
-    return elem[1]
 
 
 class OMDBInfoTool:
@@ -70,7 +68,7 @@ class OMDBInfoTool:
 
     def __entry_has_all_fields(self, entry):
         for field in self.header:
-            if field in ('flags', 'user', 'checks', 'imdb'):
+            if field.islower():
                 continue
             if not entry[self.header.index(field)]:
                 return False
@@ -95,7 +93,7 @@ class OMDBInfoTool:
         self.__save_extended_csv_to_file()
 
     def __save_extended_csv_to_file(self):
-        with open(self.filename, 'w+', encoding='utf-8') as csvfile:
+        with open(self.filename, 'w+', encoding='utf-8', newline='') as csvfile:
             writer = csv.writer(csvfile, delimiter=';')
             writer.writerow(self.header)
             writer.writerows(self.input)
@@ -111,18 +109,31 @@ class OMDBInfoTool:
 
 
 class IcmChallengeTool:
-    def __init__(self, header, challenge_list, challenge_name):
+    def __init__(self, header, challenge_list, challenge_name, recommendations=None):
         self.challenge_name = challenge_name
         self.header = header
         self.challenge_list = challenge_list
         self.users = self.__create_users_dict()
         self.icm_lists = self.__get_all_icm_lists()
         self.users['overall'] = self.get_overall()
+        self.recommendations = recommendations
 
     def __get_field_from_entry(self, entry, field):
         if field in self.header and entry[self.header.index(field)]:
             return entry[self.header.index(field)]
         return None
+
+    def __get_recommendations_watch_count(self, imdb_id):
+        all_imdb_ids = [get_imdb_id_from_url(self.__get_field_from_entry(entry, "imdb"))
+                        for _, entry in enumerate(self.challenge_list)]
+        watch_count = len(list(filter(lambda k: imdb_id == k, all_imdb_ids)))
+        return watch_count
+
+    def __get_recommendations_watch_count_for_user(self, user):
+        all_watched_imdb_ids = [entry for _, entry in enumerate(self.users[user]["imdb_ids"])]
+        all_recommendation_imdb_ids = [get_imdb_id_from_url(entry[1]) for entry in self.recommendations]
+        count = len([i for i in all_watched_imdb_ids if i in all_recommendation_imdb_ids])
+        return count
 
     def __get_all_icm_lists(self):
         icm_lists = dict()
@@ -185,12 +196,9 @@ class IcmChallengeTool:
         return overall
 
     def get_leader_list(self):
-        def take_lower(elem):
-            return str.casefold(elem[0])
-
         user_count_list = [(user_name, user['count']) for user_name, user in self.users.items()]
-        user_count_list = sorted(user_count_list, key=take_lower)
-        return sorted(user_count_list, key=take_second, reverse=True)
+        user_count_list = sorted(user_count_list, key=lambda k: (str.casefold(k[0])))
+        return sorted(user_count_list, key=lambda k: (k[1]), reverse=True)
 
     def get_count_of_entries_in_icm_list(self, username, list_name):
         imdbs = [imdb for imdb in self.users[username]['imdb_ids'] if imdb in self.icm_lists[list_name]]
@@ -202,9 +210,12 @@ class IcmChallengeTool:
         else:
             return f"[td]\t{self.users[username]['runtime']}\t[/td]"
 
-    def print_leaderboard(self):
+    def print_leaderboard(self, options=None):
+        if options is None:
+            options = []
         leader_list = self.get_leader_list()
         leaderboard = f"[table]\n[tr][td][b]\tRank\t[/b][/td][td][b]\tParticipant\t[/b][/td][td][b]\tCount\t[/b][/td]"
+        leaderboard += f"{self.__get_recommendations_leaderboard_header_cell()}" if 'recommendations' in options else ''
         leaderboard += f"[td][b]\tMinutes\t[/b][/td]" if 'Runtime' in self.header else ''
         leaderboard += f"{self.__get_icm_list_name_cells()}"
         leaderboard += f"[/tr]\n"
@@ -215,6 +226,7 @@ class IcmChallengeTool:
             row = f"[tr][td]\t{self.__get_position(count, i, last_count, last_i)}\t[/td]" \
                   f"[td]\t{username}\t[/td]" \
                   f"[td]\t{count}\t[/td]"
+            row += f"{self.__get_recommendations_leaderboard_cell(username)}" if 'recommendations' in options else ''
             row += self.get_user_runtime_cell(username)
             row += self.__get_count_in_icm_list_cells(username)
             row += f"[/tr]\n"
@@ -240,11 +252,8 @@ class IcmChallengeTool:
         return sorted_result
 
     def __sort_most_frequent_entries(self, input_list):
-        def take_third(elem):
-            return elem[2]
-
-        sorted_result = sorted(input_list, key=take_third)
-        sorted_result = sorted(sorted_result, key=take_second, reverse=True)
+        sorted_result = sorted(input_list, key=lambda k: (k[2]))
+        sorted_result = sorted(sorted_result, key=lambda k: (k[1]), reverse=True)
         return sorted_result
 
     def print_table_of_most_frequent_entries(self, minimum_freq):
@@ -255,8 +264,8 @@ class IcmChallengeTool:
             row = f"[tr][td]\t{count}\t[/td]" \
                   f"[td]\t{title}\t[/td]" \
                   f"[td]\t{year}\t[/td]" \
-                  f"[td]\t[url=https://www.imdb.com/title/{imdb_id}/] :imdb: [/url]\t[/td]" \
-                  f"[td]\t[url=https://www.icheckmovies.com/search/movies/?query={imdb_id}/] :ICM: [/url]\t[/td]" \
+                  f"{self.__get_imdb_cell(imdb_id)}" \
+                  f"{self.__get_icm_cell(imdb_id)}" \
                   f"[/tr]\n"
             table += row
 
@@ -274,7 +283,7 @@ class IcmChallengeTool:
     def __get_icm_list_name_cells(self):
         result = ''
         for list_name in self.icm_lists:
-            result += f"[td][b]\t{list_name}\t[/b][/td]"
+            result += f"[td][b]\t{list_name.replace('--', '<')}\t[/b][/td]"
         return result
 
     def __get_count_in_icm_list_cells(self, username):
@@ -331,7 +340,7 @@ class IcmChallengeTool:
 
     def print_misc_field_breakdown_table(self, field, min_value=1):
         field_breakdown = self.get_misc_field_breakdown(field)
-        field_breakdown = sorted(field_breakdown, key=take_second, reverse=True)
+        field_breakdown = sorted(field_breakdown, key=lambda k: (k[1]), reverse=True)
         table = f"[table]\n[tr][td][b]\t{field}\t[/b][/td][td][b]\tCount\t[/b][/td][/tr]\n"
         for field_value, count in field_breakdown:
             if count < min_value:
@@ -372,24 +381,50 @@ class IcmChallengeTool:
         table += f"[/tr]\n[/table]"
         return table
 
+    def __get_recommendations_leaderboard_header_cell(self):
+        return f"[td][b]\tRecommendations\t[/b][/td]"
+
+    def __get_recommendations_leaderboard_cell(self, user):
+        count = self.__get_recommendations_watch_count_for_user(user)
+        return f"[td]\t{count}\t[/td]"
+
+    def get_recommendations_list(self):
+        table = "[table]\n[tr][td][b]\tTitle\t[/b][/td][td][b]\taka\t[/b][/td][td][b]\tYear\t[/b][/td]"
+        table += "[td][b]\tRecommended by\t[/b][/td][td][b]\tTimes watched\t[/b][/td]"
+        table += "[td][b]\tIMDB\t[/b][/td][td][b]\tICM\t[/b][/td][/tr]\n"
+        recs = sorted(self.recommendations, key=lambda k: (k[2]))
+        for rec in recs:
+            imdb_id = get_imdb_id_from_url(rec[1])
+            table += f"[tr][td]\t{rec[2]}\t[/td][td]\t{rec[3]}\t[/td][td]\t{rec[4]}\t[/td]"
+            table += f"[td]\t{rec[0]}\t[/td][td]\t{self.__get_recommendations_watch_count(imdb_id)}\t[/td]"
+            table += f"{self.__get_imdb_cell(imdb_id)}{self.__get_icm_cell(imdb_id)}[/tr]\n"
+        table += "[/table]"
+        return table
+
+    def __get_imdb_cell(self, imdb_id):
+        return f"[td]\t[url=https://www.imdb.com/title/{imdb_id}/] :imdb: [/url]\t[/td]"
+
+    def __get_icm_cell(self, imdb_id):
+        return f"[td]\t[url=https://www.icheckmovies.com/search/movies/?query={imdb_id}/] :ICM: [/url]\t[/td]"
+
 
 if __name__ == '__main__':
-    challenge_name = 'southeastasia'
-    country_list = ['Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia',
-                    'Myanmar', 'Philippines', 'Singapore', 'Thailand', 'Timor-Leste', 'Vietnam']
-    ot = OMDBInfoTool(f"{challenge_name}.csv")
-    ot.add_info_to_csv()
-    header, challenge_list = open_csv(f"{challenge_name}.csv", ';')
-    ct = IcmChallengeTool(header, challenge_list, challenge_name)
-    table = f"{ct.print_leaderboard()}\n"
-    table += f"\nCountry breakdown:\n{ct.print_misc_field_breakdown_table_by_user('Country', country_list)}\n"
-    table += f"\nDecade breakdown:{ct.print_decade_breakdown()}\n"
-    table += f"\n[spoiler=Director breakdown]{ct.print_misc_field_breakdown_table('Director', 2)}[/spoiler]\n"
-    table += f"\n[spoiler=Genre breakdown]{ct.print_misc_field_breakdown_table('Genre')}[/spoiler]\n"
-    table += f"\n\n[spoiler=Movies that have been challenged more than once]"
-    table += f"{ct.print_table_of_most_frequent_entries(2)}\n[/spoiler]"
-    print(table)
-    write_to_clipboard_mac(table)
+    # challenge_name = 'southeastasia'
+    # country_list = ['Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia',
+    #                 'Myanmar', 'Philippines', 'Singapore', 'Thailand', 'Timor-Leste', 'Vietnam']
+    # ot = OMDBInfoTool(f"{challenge_name}.csv")
+    # ot.add_info_to_csv()
+    # header, challenge_list = open_csv(f"{challenge_name}.csv", ';')
+    # ct = IcmChallengeTool(header, challenge_list, challenge_name)
+    # table = f"{ct.print_leaderboard()}\n"
+    # table += f"\nCountry breakdown:\n{ct.print_misc_field_breakdown_table_by_user('Country', country_list)}\n"
+    # table += f"\nDecade breakdown:{ct.print_decade_breakdown()}\n"
+    # table += f"\n[spoiler=Director breakdown]{ct.print_misc_field_breakdown_table('Director', 2)}[/spoiler]\n"
+    # table += f"\n[spoiler=Genre breakdown]{ct.print_misc_field_breakdown_table('Genre')}[/spoiler]\n"
+    # table += f"\n\n[spoiler=Movies that have been challenged more than once]"
+    # table += f"{ct.print_table_of_most_frequent_entries(2)}\n[/spoiler]"
+    # print(table)
+    # write_to_clipboard_mac(table)
 
     # challenge_name = '1000400'
     # # ot = OMDBInfoTool(f"{challenge_name}.csv")
@@ -403,3 +438,37 @@ if __name__ == '__main__':
     # table += f"\n[spoiler=Genre breakdown]{ct.print_misc_field_breakdown_table('Genre')}[/spoiler]\n"
     # print(table)
     # write_to_clipboard_mac(table)
+
+    # challenge_name = 'waves'
+    # ot = OMDBInfoTool(f"{challenge_name}.csv")
+    # ot.add_info_to_csv()
+    # header, challenge_list = open_csv(f"{challenge_name}.csv", ';')
+    # ct = IcmChallengeTool(header, challenge_list, challenge_name)
+    # table = f"{ct.print_leaderboard()}\n"
+    # table += f"\nCountry breakdown:\n{ct.print_misc_field_breakdown_table('Country')}\n"
+    # table += f"\nDecade breakdown:{ct.print_decade_breakdown()}\n"
+    # table += f"\n[spoiler=Director breakdown]{ct.print_misc_field_breakdown_table('Director', 2)}[/spoiler]\n"
+    # table += f"\n[spoiler=Genre breakdown]{ct.print_misc_field_breakdown_table('Genre')}[/spoiler]\n"
+    # table += f"\n\n[spoiler=Movies that have been challenged more than once]"
+    # table += f"{ct.print_table_of_most_frequent_entries(2)}\n[/spoiler]"
+    # print(table)
+    # write_to_clipboard(table)
+
+    challenge_name = 'dtc'
+    print(f"Adding OMDb info for challenge {challenge_name}...")
+    ot = OMDBInfoTool(f"{challenge_name}.csv")
+    ot.add_info_to_csv()
+    print(f"Creating tables for challenge {challenge_name}...")
+    header, challenge_list = open_csv(f"{challenge_name}.csv", ';')
+    _, recommendations = open_csv(f"{challenge_name}_recommendations.csv", ';')
+    ct = IcmChallengeTool(header, challenge_list, challenge_name, recommendations=recommendations)
+    table = f"\n{ct.print_leaderboard(options=['recommendations'])}\n"
+    table += f"\nBonus game recommendations:\n{ct.get_recommendations_list()}\n"
+    table += f"\nCountry breakdown:\n{ct.print_misc_field_breakdown_table('Country')}\n"
+    table += f"\nDecade breakdown:{ct.print_decade_breakdown()}\n"
+    table += f"\n[spoiler=Director breakdown (n >= 2)]{ct.print_misc_field_breakdown_table('Director', 2)}[/spoiler]\n"
+    table += f"\n[spoiler=Genre breakdown]{ct.print_misc_field_breakdown_table('Genre')}[/spoiler]\n"
+    table += f"\n\n[spoiler=Movies that have been challenged more than once]"
+    table += f"{ct.print_table_of_most_frequent_entries(2)}\n[/spoiler]"
+    print(table)
+    write_to_clipboard(table)
